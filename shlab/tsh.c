@@ -165,6 +165,51 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
+    char buf[MAXLINE];
+    char *argv[MAXARGS];
+    pid_t pid;
+    int bg;//background or foreground
+    sigset_t mask, full_mask, prev_mask;
+    
+    sigemptyset(&mask);
+    sigaddset(&mask,SIGCHLD);//阻塞子进程终止信号
+    sigfillset(&full_mask);
+
+    strcpy(cmdline,buf);
+    int bg = parseline(buf,argv);
+    if (argv[0] == NULL){
+        return;
+    }
+    if (!builtin_cmd(argv)){
+        sigprocmask(SIG_BLOCK, &mask, &prev_mask);
+        //
+        if ((pid=Fork())==0){
+            //继承了父亲的mask，因此要恢复
+            setpgid(0,0);//hint 把子进程放进一个新进程组，其pgid和pid相同
+            sigprocmask(SIG_BLOCK, &prev_mask, NULL);
+            if (execve(argv[0],argv,environ)<0){
+                printf("%s: Command not found.\n",argv[0]);
+            }
+            exit(0);
+        }
+        sigprocmask(SIG_BLOCK,&full_mask,NULL);
+        //同步
+        addjob(jobs,pid,bg,cmdline);
+        sigprocmask(SIG_BLOCK,&prev_mask,NULL);
+        if(!bg){
+            waitfg(pid);
+        }else{
+            printf("%d %s",pid ,cmdline);
+        }
+        sigprocmask(SIG_BLOCK, &prev_mask, NULL);
+            // if (waitpid(pid,&status,0)<0){
+            //     unix_error("waitpig: waitpig error");
+            // }else{
+                
+            // }
+
+    }
+
     return;
 }
 
@@ -228,17 +273,60 @@ int parseline(const char *cmdline, char **argv)
 /* 
  * builtin_cmd - If the user has typed a built-in command then execute
  *    it immediately.  
+ * 
  */
 int builtin_cmd(char **argv) 
 {
+    //strcmp==0时为真
+    if(!strcmp(argv[0],"quit"))
+        exit(0);
+    if(!strcmp(argv[0],"jobs")){
+        listjobs(jobs);
+        return 1;
+    }
+    if(!strcmp(argv[0],"bg") || !strcmp(argv[0],"fg")){
+        do_bgfg(argv);
+        return  1;
+    }
+    if (strcmp(argv[0],"vi")||strcmp(argv[0],"less")||strcmp(argv[0],"more"))
+        //不处理复杂程序
+        return 1;
+    if (!strcmp(argv[0],"&"))//去除空行
+        return 1;
     return 0;     /* not a builtin command */
 }
 
 /* 
  * do_bgfg - Execute the builtin bg and fg commands
+ * bg:让一个停止的工作重新启动，后台运行
+ * fg:让一个停止或正在运行的工作前台运行
  */
 void do_bgfg(char **argv) 
 {
+    if (argv[1] == NULL) {
+        printf("%s command requires PID or %%jobid argument\n",argv[0]);
+        return;
+    }
+    int jid,pid;
+    struct job_t* job;
+    if (argv[1][0] == '%'){//JID
+        jid = atoi(&argv[1]+1);
+        job = getjobjid(jobs,jid);
+        pid = job->pid;
+        // int jid;
+        // sscanf(argv[1],"%d",&jid);
+    }else{//PID
+        pid = atoi(argv[1]);
+        job = getjobpid(jobs,pid);
+    }
+    //SIGCONT continue，继续进程如果该进程停止
+    kill(-pid,SIGCONT);
+    if(!strcmp(argv[0],"fg")){
+        job->state = FG;
+        waitfg(pid);
+    }else{
+        printf("%d %s",pid ,job->cmdline);
+    }
     return;
 }
 
@@ -247,6 +335,10 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    while(fgpid(pid)){
+        // fgpid返回pid对应的job，如果为0则不存在
+        sleep(0.1);
+    }
     return;
 }
 
@@ -263,6 +355,11 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    pid_t pid;
+    int status;
+    while (pid = waitpid(-1,&status,0)>0){
+        deletejob(jobs,pid);
+    }
     return;
 }
 
@@ -273,6 +370,11 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    pid_t pid;
+    if ((pid=fgpid(jobs))>0){
+        // kill(pid,SIGINT);
+        kill(-pid,SIGINT);//要发给子进程的进程组
+    }
     return;
 }
 
@@ -283,6 +385,10 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    pid_t pid;
+    if ((pid=fgpid(jobs))>0){
+        kill(-pid,SIGTSTP);
+    }
     return;
 }
 
