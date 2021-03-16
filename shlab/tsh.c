@@ -353,9 +353,20 @@ void sigchld_handler(int sig)
 {
     pid_t pid;
     int status;
-    while ((pid = waitpid(-1,&status,0))>0){
-        deletejob(jobs,pid);
+    // printf("handle signal\n");
+    // if ((pid = fork())==0){
+    //     int status;
+    //     sigset_t mask, prev_mask;
+
+    //     exit(0);
+    // }
+    sigset_t mask, prev_mask;
+    sigemptyset(&mask);
+    sigprocmask(SIG_BLOCK,&mask,&prev_mask);
+    if ((pid = waitpid(-1,&status,WNOHANG | WUNTRACED))>0){
+        deletejob(jobs,pid); 
     }
+    sigprocmask(SIG_SETMASK,&prev_mask,NULL);
     return;
 }
 
