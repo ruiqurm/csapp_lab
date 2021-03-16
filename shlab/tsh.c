@@ -168,21 +168,20 @@ void eval(char *cmdline)
     char buf[MAXLINE];
     char *argv[MAXARGS];
     pid_t pid;
-    int jid;
+    int jid,state;
     int bg;//background or foreground
     sigset_t mask, full_mask, prev_mask;
-    
-    sigemptyset(&mask);
-    sigaddset(&mask,SIGCHLD);//阻塞子进程终止信号
-    sigfillset(&full_mask);
+
     
     strcpy(buf,cmdline);//注意，前面的是dest
     bg = parseline(buf,argv);
-    
     if (argv[0] == NULL){
         return;
     }
     if (!builtin_cmd(argv)){
+        sigemptyset(&mask);
+        sigaddset(&mask,SIGCHLD);//阻塞子进程终止信号
+        sigfillset(&full_mask);
         sigprocmask(SIG_BLOCK, &mask, &prev_mask);
         //
         if ((pid=fork())==0){
@@ -191,17 +190,20 @@ void eval(char *cmdline)
             sigprocmask(SIG_SETMASK, &prev_mask, NULL);
             if (execve(argv[0],argv,environ)<0){
                 printf("%s: Command not found.\n",argv[0]);
+                exit(0);
             }
-            exit(0);
+            
+        }else{
+            //同步
+            state = bg ? BG : FG;//注意转换
+            sigprocmask(SIG_BLOCK,&full_mask,NULL);
+            addjob(jobs,pid,state,cmdline);
+            sigprocmask(SIG_SETMASK,&prev_mask,NULL);
         }
-        sigprocmask(SIG_BLOCK,&full_mask,NULL);
-        //同步
-        addjob(jobs,pid,bg,cmdline);
-        jid = pid2jid(pid);
-        sigprocmask(SIG_SETMASK,&prev_mask,NULL);
         if(!bg){
             waitfg(pid);
         }else{
+            jid = pid2jid(pid);
             printf("[%d] (%d) %s",jid, pid ,cmdline);
         }
     }
@@ -331,9 +333,17 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    while(getjobpid(jobs,pid)){
+    sigset_t empty_set;
+    sigemptyset(&empty_set);
+    sigprocmask(SIG_SETMASK,&empty_set,NULL);
+    while(fgpid(jobs)>0){
         // fgpid返回pid对应的job，如果为0则不存在
-        sleep(1);
+        
+        // printf("waiting\n");
+        // fflush(stdout);
+        // fllush(stdout);
+        sleep(0.1);
+        // sigsuspend(&empty_set);
     }
     return;
 }
@@ -380,7 +390,9 @@ void sigint_handler(int sig)
     pid_t pid;
     if ((pid=fgpid(jobs))>0){
         // kill(pid,SIGINT);
+        
         kill(-pid,SIGINT);//要发给子进程的进程组
+        printf("Job [%d] (%d) terminated by signal 2\n",pid2jid(pid),pid);
     }
     return;
 }
