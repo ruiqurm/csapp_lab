@@ -142,7 +142,6 @@ int main(int argc, char **argv)
 	    fflush(stdout);
 	    exit(0);
 	}
-
 	/* Evaluate the command line */
 	eval(cmdline);
 	fflush(stdout);
@@ -165,28 +164,31 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
+    
     char buf[MAXLINE];
     char *argv[MAXARGS];
     pid_t pid;
+    int jid;
     int bg;//background or foreground
     sigset_t mask, full_mask, prev_mask;
     
     sigemptyset(&mask);
     sigaddset(&mask,SIGCHLD);//阻塞子进程终止信号
     sigfillset(&full_mask);
-
-    strcpy(cmdline,buf);
-    int bg = parseline(buf,argv);
+    
+    strcpy(buf,cmdline);//注意，前面的是dest
+    bg = parseline(buf,argv);
+    
     if (argv[0] == NULL){
         return;
     }
     if (!builtin_cmd(argv)){
         sigprocmask(SIG_BLOCK, &mask, &prev_mask);
         //
-        if ((pid=Fork())==0){
+        if ((pid=fork())==0){
             //继承了父亲的mask，因此要恢复
             setpgid(0,0);//hint 把子进程放进一个新进程组，其pgid和pid相同
-            sigprocmask(SIG_BLOCK, &prev_mask, NULL);
+            sigprocmask(SIG_SETMASK, &prev_mask, NULL);
             if (execve(argv[0],argv,environ)<0){
                 printf("%s: Command not found.\n",argv[0]);
             }
@@ -195,19 +197,13 @@ void eval(char *cmdline)
         sigprocmask(SIG_BLOCK,&full_mask,NULL);
         //同步
         addjob(jobs,pid,bg,cmdline);
-        sigprocmask(SIG_BLOCK,&prev_mask,NULL);
+        jid = pid2jid(pid);
+        sigprocmask(SIG_SETMASK,&prev_mask,NULL);
         if(!bg){
             waitfg(pid);
         }else{
-            printf("%d %s",pid ,cmdline);
+            printf("[%d] (%d) %s",jid, pid ,cmdline);
         }
-        sigprocmask(SIG_BLOCK, &prev_mask, NULL);
-            // if (waitpid(pid,&status,0)<0){
-            //     unix_error("waitpig: waitpig error");
-            // }else{
-                
-            // }
-
     }
 
     return;
@@ -288,7 +284,7 @@ int builtin_cmd(char **argv)
         do_bgfg(argv);
         return  1;
     }
-    if (strcmp(argv[0],"vi")||strcmp(argv[0],"less")||strcmp(argv[0],"more"))
+    if (!strcmp(argv[0],"vi")||!strcmp(argv[0],"less")||!strcmp(argv[0],"more"))
         //不处理复杂程序
         return 1;
     if (!strcmp(argv[0],"&"))//去除空行
@@ -310,7 +306,7 @@ void do_bgfg(char **argv)
     int jid,pid;
     struct job_t* job;
     if (argv[1][0] == '%'){//JID
-        jid = atoi(&argv[1]+1);
+        jid = atoi(argv[1]+1);
         job = getjobjid(jobs,jid);
         pid = job->pid;
         // int jid;
@@ -335,9 +331,9 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
-    while(fgpid(pid)){
+    while(getjobpid(jobs,pid)){
         // fgpid返回pid对应的job，如果为0则不存在
-        sleep(0.1);
+        sleep(1);
     }
     return;
 }
@@ -357,7 +353,7 @@ void sigchld_handler(int sig)
 {
     pid_t pid;
     int status;
-    while (pid = waitpid(-1,&status,0)>0){
+    while ((pid = waitpid(-1,&status,0))>0){
         deletejob(jobs,pid);
     }
     return;
