@@ -23,3 +23,6 @@ GET localhost/home.html HTTP/1.0
 http://
 
 但是，如果http请求无头的话，这个
+
+## Part 3
+LRU的一种比较简单的实现是用双端链表+Hash Map.

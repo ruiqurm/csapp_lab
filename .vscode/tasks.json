@@ -8,6 +8,19 @@
             "command": "cd ${fileDirname} &&make",
             "args": [],
             "type": "shell"
+        },
+        {
+            "label": "gcc-compile",
+            "command": "gcc",
+            "args": [
+                "-g",
+                "-Wall",
+                "-std=c11",
+                "-lpthread",
+                "${file}",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}"
+            ],
         }
         
     ]

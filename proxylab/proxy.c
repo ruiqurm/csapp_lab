@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include "csapp.h"
 #include <string.h>
+#include "link_list.h"
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
-
-// #define LISTENFD 4500
+#define DEBU
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
@@ -17,20 +17,29 @@ static const char *connection_hdr = "Connection: close\r\n";
 void doit(int fd);
 void clienterror(int fd,char *cause,char *errnum,char*shortmsg,char*longmsg);
 void build_requesthdrs(rio_t* from,int to,char* host,char*path);
-// void read_requesthdrs(rio_t *rp);
+void *thread(void *vargp);
 void parse_uri(char* uri,char* host,char*path,int*port);
 
 int main(int argc,char **argv)
 {
-    int listenfd,connfd;
+    int listenfd;
+    int *connfd;// 每个线程独享
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
     char clienthost_name[MAXLINE],client_port[MAXLINE];
+    pthread_t tid;//线程编号
+    
+    struct link_list LRU;
+    init_link_list(&LRU);
+
     if (argc != 2){
         fprintf(stderr,"usage: %s <port>\n", argv[0]);
-        // exit(1);
-        listenfd = Open_listenfd("28936");
-        printf("Server listen on http://localhost:%s\n","28936");
+        #ifdef DEBUG
+            listenfd = Open_listenfd("28936");
+            printf("Server listen on http://localhost:%s\n","28936");
+        #else
+            exit(1);
+        #endif
     }else{
         listenfd = Open_listenfd(argv[1]);
         printf("Server listen on http://localhost:%s\n",argv[1]);
@@ -39,26 +48,29 @@ int main(int argc,char **argv)
 
     while(1){
         clientlen = sizeof(struct sockaddr_storage);
-        connfd = Accept(listenfd,(SA*)&clientaddr,&clientlen);
+        connfd = (int*) Malloc(sizeof(int));
+        *connfd = Accept(listenfd,(SA*)&clientaddr,&clientlen);
         Getnameinfo((SA*)&clientaddr,clientlen,clienthost_name,MAXLINE,
-                    client_port,MAXLINE,0);
+            client_port,MAXLINE,0);
         printf("Accept connection from (%s, %s)\n",clienthost_name,client_port);
         fflush(stdout);
-        doit(connfd);
-        Close(connfd);
-        printf("Close connection from (%s, %s)\n\n",clienthost_name,client_port);
-        fflush(stdout);
+        Pthread_create(&tid,NULL,thread,connfd);
     }
+    free_list(&LRU);
 }
 
+void *thread(void *vargp)
+{
+    int connfd = *((int*)vargp);
+    Pthread_detach(pthread_self());
+    Free(vargp);
+    doit(connfd);
+    Close(connfd);
+    printf("Close connection.\n");
+    fflush(stdout);
+    return NULL;
+}
 
-/***********************
- * Other helper routines
- ***********************/
-
-/******************************
- * end job list helper routines
- ******************************/
 
 void doit(int fd){
     rio_t rio,rio_endserver;
@@ -75,9 +87,9 @@ void doit(int fd){
         return;
     }
     int iport =80;
-    printf("uri: %s\n",uri);
+    printf("uri: %s\n",uri);;
     parse_uri(uri,host,path,&iport);
-    printf("method: %s,\nhost: %s,\npath: %s,\nversion: %s\n",method,host,path,version);
+    printf("method: %s,\nhost: %s,\npath: %s,\nversion: %s\n",method,host,path,version);;
     sprintf(port,"%d",iport);
     clientfd = Open_clientfd(host,port);
     Rio_readinitb(&rio_endserver,clientfd);
@@ -143,7 +155,9 @@ void parse_uri(char* uri,char* host,char*path,int *port){
 
 void build_requesthdrs(rio_t* from,int to,char* host,char*path){
     char buf[MAXLINE];
-    printf("--------------------\nheaders:\n");
+    #ifdef DEBUG
+        printf("--------------------\nheaders:\n");
+    #endif
     sprintf(buf,"GET %s HTTP/1.0\r\n",path);
     Rio_writen(to,buf,strlen(buf));
 
@@ -158,23 +172,33 @@ void build_requesthdrs(rio_t* from,int to,char* host,char*path){
         Rio_readlineb(from,buf,MAXLINE);
     }
     strcpy(buf,user_agent_hdr);
-    Fputs(buf,stdout);
+    #ifdef DEBUG
+        Fputs(buf,stdout);
+    #endif
     Rio_writen(to,buf,strlen(buf));
     
     strcpy(buf,proxy_connection_hdr);
-    Fputs(buf,stdout);
+    #ifdef DEBUG
+        Fputs(buf,stdout);
+    #endif
     Rio_writen(to,buf,strlen(buf));
     
     strcpy(buf,connection_hdr);
-    Fputs(buf,stdout);
+    #ifdef DEBUG
+        Fputs(buf,stdout);
+    #endif
     Rio_writen(to,buf,strlen(buf));
 
     sprintf(buf,"Host: %s\r\n",host);
-    Fputs(buf,stdout);
+    #ifdef DEBUG
+        Fputs(buf,stdout);
+    #endif
     Rio_writen(to,buf,strlen(buf));
 
-    printf("----------------------\n");
-    fflush(stdout);
+    #ifdef DEBUG
+        printf("----------------------\n");fflush(stdout);
+    #endif
+    
     Rio_writen(to,"\r\n",2);
     // if (has_body){
     //     Rio_readlineb(from,body,MAXBUF);
