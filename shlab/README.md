@@ -1,4 +1,4 @@
-# phase0
+# pre
 ## 目标
 * eval: Main routine that parses and interprets the command line. [70 lines]
 执行、处理命令行指令的函数
@@ -73,7 +73,7 @@ lines]
 |||
 
 
-# phase1
+# test
 ## test01
 这个测试的是`ctrl+D`，已经写好了  
 ## test02 - Process builtin quit command
