@@ -5,4 +5,4 @@
 | [attacklab](attacklab.pdf)  | √       |  ×   |         |
 | cachelab   | ×       |  √   |         |
 | [shlab](shlab/README.md)      | √       |  √   |         |
-| [proxylab](proxylab/README.md)   |         |      | part1   |
+| [proxylab](proxylab/README.md)   |         |  √    | |
