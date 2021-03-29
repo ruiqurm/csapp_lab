@@ -5,7 +5,7 @@
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
-#define DEBU
+#define DEBUG
 
 /* You won't lose style points for including this long line in your code */
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
@@ -20,6 +20,9 @@ void build_requesthdrs(rio_t* from,int to,char* host,char*path);
 void *thread(void *vargp);
 void parse_uri(char* uri,char* host,char*path,int*port);
 
+struct link_list LRU;
+sem_t lock;
+
 int main(int argc,char **argv)
 {
     int listenfd;
@@ -29,8 +32,8 @@ int main(int argc,char **argv)
     char clienthost_name[MAXLINE],client_port[MAXLINE];
     pthread_t tid;//线程编号
     
-    struct link_list LRU;
     init_link_list(&LRU);
+    sem_init(&lock,0,1);
 
     if (argc != 2){
         fprintf(stderr,"usage: %s <port>\n", argv[0]);
@@ -56,7 +59,7 @@ int main(int argc,char **argv)
         fflush(stdout);
         Pthread_create(&tid,NULL,thread,connfd);
     }
-    free_list(&LRU);
+    // free_list(&LRU);
 }
 
 void *thread(void *vargp)
@@ -76,6 +79,7 @@ void doit(int fd){
     rio_t rio,rio_endserver;
     int clientfd,readed;
     char buf[MAXLINE],method[MAXLINE],uri[MAXLINE],version[MAXLINE];
+    char cache[MAX_OBJECT_SIZE],uri_duplicate[MAXLINE];
     char host[MAXLINE],path[MAXLINE];
     char port[6];
     Rio_readinitb(&rio,fd);
@@ -87,18 +91,45 @@ void doit(int fd){
         return;
     }
     int iport =80;
-    printf("uri: %s\n",uri);;
-    parse_uri(uri,host,path,&iport);
-    printf("method: %s,\nhost: %s,\npath: %s,\nversion: %s\n",method,host,path,version);;
-    sprintf(port,"%d",iport);
-    clientfd = Open_clientfd(host,port);
-    Rio_readinitb(&rio_endserver,clientfd);
-    build_requesthdrs(&rio,clientfd,host,path);
+    printf("uri: %s\n",uri);
+    strcpy(uri_duplicate,uri);
 
-    while ((readed = Rio_readlineb(&rio_endserver, buf, MAXLINE))) {//real server response to buf
-        Rio_writen(fd, buf, readed);  //real server response to real client
+    struct link_node *node;
+    int size; 
+
+    P(&lock);
+    node = get_cache(&LRU,uri);
+    if (node){
+        strcpy(buf,node->data);
+        size = node->size;
     }
-    Close(clientfd);
+    V(&lock);
+
+    if ((node)!=NULL)
+    {
+        Rio_writen(fd,buf,size);
+    }else{
+        parse_uri(uri,host,path,&iport);
+        printf("method: %s,\nhost: %s,\npath: %s,\nversion: %s\n",method,host,path,version);;
+        sprintf(port,"%d",iport);
+        clientfd = Open_clientfd(host,port);
+        Rio_readinitb(&rio_endserver,clientfd);
+        build_requesthdrs(&rio,clientfd,host,path);
+        int cache_size = 0;
+        while ((readed = Rio_readlineb(&rio_endserver, buf, MAXLINE))) {//real server response to buf
+            if(cache_size+readed<MAX_OBJECT_SIZE)
+            {
+                strcpy(cache+cache_size,buf);
+                cache_size += readed;
+            }
+            Rio_writen(fd, buf, readed);  //real server response to real client
+        }
+        P(&lock);
+        update_cache(&LRU,uri_duplicate,cache,cache_size);
+        V(&lock);
+        Close(clientfd);
+    }
+   
 }
 void parse_uri(char* uri,char* host,char*path,int *port){
     char* ptr = strstr(uri,"//");

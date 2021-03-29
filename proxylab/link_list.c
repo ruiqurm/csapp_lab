@@ -43,6 +43,7 @@ extern void init_link_list(struct link_list* list)
     p->label = -1;//0xffffffff
     list->total_size = 0;
 }
+
 extern struct link_node* update_cache(struct link_list*list,char* uri,const char* data,size_t size)
 {
     if(size>MAX_OBJECT_SIZE)
@@ -93,17 +94,18 @@ extern struct link_node* get_cache(struct link_list*list,char* uri)
     {
         if (now->label==label)
         {
-            if (now==list->tail)
-            {
-                list->tail = now->pred;
-                now->pred->succ =NULL;
-                now->pred = head;
-                now->succ = head->succ;
-                head->succ->pred = now;
-                head->succ = now;
-            }else if (now==list->head)
+            if(now==list->head||(now==list->tail && list->tail==list->head->succ))
             {
                 return now;
+            }
+            else if (now==list->tail)
+            {
+                    list->tail = now->pred;
+                    now->pred->succ =NULL;
+                    now->pred = head;
+                    now->succ = head->succ;
+                    head->succ->pred = now;
+                    head->succ = now;
             }
             else{
                 now->pred->succ = now->succ;
