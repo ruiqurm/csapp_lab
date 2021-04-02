@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include "csapp.h"
 #include <string.h>
-#include <stdarg.h>
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
@@ -19,7 +18,6 @@ void clienterror(int fd,char *cause,char *errnum,char*shortmsg,char*longmsg);
 void build_requesthdrs(rio_t* from,int to,char* host,char*path);
 // void read_requesthdrs(rio_t *rp);
 void parse_uri(char* uri,char* host,char*path,int*port);
-void sigchld_handler(int sig);
 
 int main(int argc,char **argv)
 {
@@ -27,12 +25,8 @@ int main(int argc,char **argv)
     socklen_t clientlen;
     struct sockaddr_storage clientaddr;
     char clienthost_name[MAXLINE],client_port[MAXLINE];
-
-    Signal(SIGCHLD,sigchld_handler);// 回收同时产生的子进程回收信号
-
     if (argc != 2){
         fprintf(stderr,"usage: %s <port>\n", argv[0]);
-        // exit(1);
         #ifdef DEBUG
             listenfd = Open_listenfd("28936");
             printf("Server listen on http://localhost:%s\n","28936");
@@ -44,27 +38,19 @@ int main(int argc,char **argv)
         printf("Server listen on http://localhost:%s\n",argv[1]);
     }
     
-
+    signal(SIGPIPE, SIG_IGN);
 
     while(1){
         clientlen = sizeof(struct sockaddr_storage);
         connfd = Accept(listenfd,(SA*)&clientaddr,&clientlen);
-        if(Fork()==0){
-            Close(listenfd);//** 不要忘了关闭监听的端口
-
-            Getnameinfo((SA*)&clientaddr,clientlen,clienthost_name,MAXLINE,
+        Getnameinfo((SA*)&clientaddr,clientlen,clienthost_name,MAXLINE,
                     client_port,MAXLINE,0);
-            printf("[%d]Accept connection from (%s, %s)\n",getpid(),clienthost_name,client_port);fflush(stdout);
-            
-            doit(connfd);
-
-            Close(connfd);
-            printf("[%d]Close connection from (%s, %s)\n\n",getpid(),clienthost_name,client_port);fflush(stdout);
-
-            exit(0);
-        }
-        printf("main process listening..\n");
+        printf("Accept connection from (%s, %s)\n",clienthost_name,client_port);
+        fflush(stdout);
+        doit(connfd);
         Close(connfd);
+        printf("Close connection from (%s, %s)\n\n",clienthost_name,client_port);
+        fflush(stdout);
     }
 }
 
@@ -90,7 +76,10 @@ void doit(int fd){
     parse_uri(uri,host,path,&iport);
     printf("method: %s,\nhost: %s,\npath: %s,\nversion: %s\n",method,host,path,version);
     sprintf(port,"%d",iport);
+
     clientfd = Open_clientfd(host,port);
+
+
     Rio_readinitb(&rio_endserver,clientfd);
     build_requesthdrs(&rio,clientfd,host,path);
 
@@ -99,6 +88,7 @@ void doit(int fd){
     }
     Close(clientfd);
 }
+
 void parse_uri(char* uri,char* host,char*path,int *port){
     //下面会修改uri，但会复原
     char* ptr = strstr(uri,"//");
@@ -211,11 +201,4 @@ void clienterror(int fd,char *cause,char *errnum,char*shortmsg,char*longmsg){
     sprintf(buf, "Content-length: %d\r\n\r\n",(int)strlen(body));
     Rio_writen(fd, buf, strlen(buf));
     Rio_writen(fd, body, strlen(body));
-}
-
-void sigchld_handler(int sig)
-{
-    while(waitpid(-1,0,WNOHANG) > 0)
-        ;
-    return;
 }

@@ -55,7 +55,6 @@ int main(int argc,char **argv)
 
 
 
-
 void doit(int fd){
     rio_t rio,rio_endserver;
     int clientfd,readed;
@@ -79,22 +78,29 @@ void doit(int fd){
     Rio_readinitb(&rio_endserver,clientfd);
     build_requesthdrs(&rio,clientfd,host,path);
 
-    while ((readed = Rio_readlineb(&rio_endserver, buf, MAXLINE))) {//real server response to buf
-        Rio_writen(fd, buf, readed);  //real server response to real client
+    while ((readed = Rio_readlineb(&rio_endserver, buf, MAXLINE))) {
+        Rio_writen(fd, buf, readed);  
     }
     Close(clientfd);
 }
 void parse_uri(char* uri,char* host,char*path,int *port){
+    //下面会修改uri，但会复原
     char* ptr = strstr(uri,"//");
+    char c_temp;//用于复原uri
+    
     if (ptr!=NULL){
-        // 形如uri:http://localhost:15213/home.html
+        // uri形如:http://localhost:15213/home.html
             ptr += 2; 
             char* portpos = strstr(ptr, ":");
-            if (portpos!=NULL){// localhost:15213/home.html
+            if (portpos!=NULL){
+                // localhost:15213/home.html
+                c_temp = *portpos;
                 *portpos = '\0' ;
                 sscanf(ptr, "%s", host);
                 sscanf(portpos+1, "%d%s", port, path);
-            }else{// localhost/home.html
+                *portpos = c_temp;
+            }else{
+                // localhost/home.html
                 char *split = strstr(ptr,"/");
                 *split = '\0';
                 strcpy(host,ptr);
@@ -103,40 +109,31 @@ void parse_uri(char* uri,char* host,char*path,int *port){
             }
         return ;
     }
+    
     ptr = uri;
     if (ptr[0]=='/'){
         ptr+=1;
         char* portpos = strstr(ptr, ":");
-        if (portpos!=NULL){// /localhost:15213/home.html
+        if (portpos!=NULL){
+            // /localhost:15213/home.html
+            c_temp = *portpos;
             *portpos = '\0' ;
-            sscanf(ptr, "%s", host);
-            sscanf(portpos+1, "%d%s", port, path);
+            sscanf(ptr, "%s", host);// 读取host
+            sscanf(portpos+1, "%d%s", port, path);//读取端口和path
+            *portpos = c_temp;
             return; 
-        }else{// localhost/home.html
+        }else{
+            // localhost/home.html
             char *split = strstr(ptr,"/");
             *split = '\0';
-            strcpy(host,ptr);
+            strcpy(host,ptr); // 读取host
             printf("host: %s\n",host);
             *split = '/';
-            strcpy(path,split);
+            strcpy(path,split);//分离出path
             return;
         }
     }
-    // {
-    //     temp = strstr(ptr,"/");
-    //     if(temp != NULL) {
-    //         *temp = '\0';
-    //         sscanf(ptr, "%s", host);
-    //         *temp = '/';
-    //         sscanf(temp, "%s", path);
-    //     }
-    //     else {
-    //         sscanf(ptr, "%s", host);
-    //     }
-    // }
-    // return;
 }
-
 void build_requesthdrs(rio_t* from,int to,char* host,char*path){
     char buf[MAXLINE];
     printf("--------------------\nheaders:\n");
